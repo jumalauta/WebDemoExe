@@ -641,7 +641,7 @@ namespace WebDemoExe
             if (closeWindow)
             {
                 Close();
-                System.Environment.Exit(1);
+                System.Environment.Exit(0);
             }
         }
     }
