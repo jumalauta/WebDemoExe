@@ -22,6 +22,7 @@ wrap your web demo into a windows exe format, just like a native demo.
 - rename webdemoexe.exe to your demo name
 - add `<autostart/>` into the config to not show the dialog at all and start directly, don't do this if you want to play audio without having another user interaction!
 - add `<domain>yourdomain.localhost</domain>` to customize the virtual host domain (defaults to webdemoexe.localhost)
+- add `<allowrunninginsecurecontent/>` to allow insecure content (for example `ws://` for unencrypted websocket connections)
 
 - if the url contains "webdemoexe_exit" it will exit, e.g. use window.location.hash="webdemoexe_exit"
 
@@ -30,6 +31,7 @@ wrap your web demo into a windows exe format, just like a native demo.
 - webdemoexe uses [webview2](https://learn.microsoft.com/en-us/microsoft-edge/webview2/) and creates a virtual host from the demo subfolder to run your demo
 - escape to close is handled by webdemoexe
   - if you need to handle escape key manually, add `<propagatekeys/>` in the config.
+- if insecure connections are needed, set `<allowrunninginsecurecontent/>` (equivalent to [WebView flag](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/webview-features-flags?tabs=dotnetcsharp) `allow-running-insecure-content`)
 - no gesture is needed to auto play audio, if you normally display a play button, make sure it only shows when audiocontext stats is not "running"...
 
 ### ideas
