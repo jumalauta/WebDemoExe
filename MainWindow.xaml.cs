@@ -46,6 +46,28 @@ namespace WebDemoExe
 
         bool _propagateKeys = false;
 
+        HashSet<string> _additionalBrowserArguments = new HashSet<string>(StringComparer.Ordinal);
+
+        private void AddBrowserArgument(string argument)
+        {
+            if (string.IsNullOrWhiteSpace(argument))
+            {
+                return;
+            }
+
+            _additionalBrowserArguments.Add(argument.Trim());
+        }
+
+        private void SetAdditionalBrowserArguments()
+        {
+            if (_additionalBrowserArguments.Count == 0)
+            {
+                return;
+            }
+
+            Environment.SetEnvironmentVariable("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", string.Join(" ", _additionalBrowserArguments));
+        }
+
         public MainWindow()
         {
             var dlg = new DemoDialog();
@@ -58,6 +80,7 @@ namespace WebDemoExe
             var currentTag = "";
             var dialogTitle = "webDemoExe";
             var autostart = false;
+            var allowRunningInsecureContent = false;
 
             try
             {
@@ -73,6 +96,7 @@ namespace WebDemoExe
                             {
                                 if (currentTag.Equals("autostart")) autostart = true;
                                 if (currentTag.Equals("propagatekeys")) _propagateKeys = true;
+                                if (currentTag.Equals("allowrunninginsecurecontent")) allowRunningInsecureContent = true;
                             }
                             break;
 
@@ -81,6 +105,7 @@ namespace WebDemoExe
                             if (currentTag.Equals("domain")) _appDomain = reader.Value;
                             if (currentTag.Equals("autostart")) autostart = XmlConvert.ToBoolean(reader.Value);
                             if (currentTag.Equals("propagatekeys")) _propagateKeys = XmlConvert.ToBoolean(reader.Value);
+                            if (currentTag.Equals("allowrunninginsecurecontent")) allowRunningInsecureContent = XmlConvert.ToBoolean(reader.Value);
                             break;
                     }
                 }
@@ -91,9 +116,12 @@ namespace WebDemoExe
                 dialogTitle = "xml error";
 
                 MessageBox.Show($"Could not parse {configFile}: {dialogTitle}: {e.Message}");
-            }
+            }            
 
-            
+            if (allowRunningInsecureContent)
+            {
+                AddBrowserArgument("--allow-running-insecure-content");
+            }
 
             if (autostart==false)
             {
@@ -102,7 +130,7 @@ namespace WebDemoExe
                 dlg.ShowDialog();
 
 
-                Environment.SetEnvironmentVariable("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--autoplay-policy=no-user-gesture-required");
+                AddBrowserArgument("--autoplay-policy=no-user-gesture-required");
                 Environment.SetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER", Path.GetTempPath());
 
                 if (dlg.DialogResult == true)
@@ -114,6 +142,8 @@ namespace WebDemoExe
                     return;
                 }
             }
+
+            SetAdditionalBrowserArguments();
 
             DataContext = this;
             InitializeComponent();
