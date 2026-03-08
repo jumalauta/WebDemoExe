@@ -23,6 +23,8 @@ namespace WebDemoExe
     /// </summary>
     public partial class MainWindow : Window
     {
+        private string _appDomain = "webdemoexe.localhost";
+        
         CoreWebView2Environment _webViewEnvironment;
         CoreWebView2Environment WebViewEnvironment
         {
@@ -42,18 +44,43 @@ namespace WebDemoExe
         IDictionary<(string, CoreWebView2PermissionKind, bool), bool> _cachedPermissions =
             new Dictionary<(string, CoreWebView2PermissionKind, bool), bool>();
 
+        bool _propagateKeys = false;
+
+        HashSet<string> _additionalBrowserArguments = new HashSet<string>(StringComparer.Ordinal);
+
+        private void AddBrowserArgument(string argument)
+        {
+            if (string.IsNullOrWhiteSpace(argument))
+            {
+                return;
+            }
+
+            _additionalBrowserArguments.Add(argument.Trim());
+        }
+
+        private void SetAdditionalBrowserArguments()
+        {
+            if (_additionalBrowserArguments.Count == 0)
+            {
+                return;
+            }
+
+            Environment.SetEnvironmentVariable("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", string.Join(" ", _additionalBrowserArguments));
+        }
 
         public MainWindow()
         {
             var dlg = new DemoDialog();
 
 
-            var reader = new XmlTextReader("webdemoexe.xml");
+            var configFile = "webdemoexe.xml";
+            var reader = new XmlTextReader(configFile);
             reader.WhitespaceHandling = WhitespaceHandling.None;
 
             var currentTag = "";
             var dialogTitle = "webDemoExe";
             var autostart = false;
+            var allowRunningInsecureContent = false;
 
             try
             {
@@ -63,15 +90,23 @@ namespace WebDemoExe
                     switch (reader.NodeType)
                     {
                         case XmlNodeType.Element:
-                            Trace.Write("ele", reader.Name);
                             currentTag = reader.Name;
+                            
+                            if (reader.IsEmptyElement)
+                            {
+                                if (currentTag.Equals("autostart")) autostart = true;
+                                if (currentTag.Equals("propagatekeys")) _propagateKeys = true;
+                                if (currentTag.Equals("allowrunninginsecurecontent")) allowRunningInsecureContent = true;
+                            }
                             break;
 
                         case XmlNodeType.Text:
                             if (currentTag.Equals("title")) dialogTitle = reader.Value;
-                            if (currentTag.Equals("autostart")) autostart = true;
+                            if (currentTag.Equals("domain")) _appDomain = reader.Value;
+                            if (currentTag.Equals("autostart")) autostart = XmlConvert.ToBoolean(reader.Value);
+                            if (currentTag.Equals("propagatekeys")) _propagateKeys = XmlConvert.ToBoolean(reader.Value);
+                            if (currentTag.Equals("allowrunninginsecurecontent")) allowRunningInsecureContent = XmlConvert.ToBoolean(reader.Value);
                             break;
-
                     }
                 }
 
@@ -80,9 +115,13 @@ namespace WebDemoExe
             {
                 dialogTitle = "xml error";
 
-            }
+                MessageBox.Show($"Could not parse {configFile}: {dialogTitle}: {e.Message}");
+            }            
 
-            
+            if (allowRunningInsecureContent)
+            {
+                AddBrowserArgument("--allow-running-insecure-content");
+            }
 
             if (autostart==false)
             {
@@ -91,8 +130,8 @@ namespace WebDemoExe
                 dlg.ShowDialog();
 
 
-                Environment.SetEnvironmentVariable("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--autoplay-policy=no-user-gesture-required");
-                Environment.SetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER", Path.GetTempPath());
+                AddBrowserArgument("--autoplay-policy=no-user-gesture-required");
+                Environment.SetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER", Path.Combine(Path.GetTempPath(), Path.GetRandomFileName()));
 
                 if (dlg.DialogResult == true)
                 {
@@ -104,8 +143,11 @@ namespace WebDemoExe
                 }
             }
 
+            SetAdditionalBrowserArguments();
+
             DataContext = this;
             InitializeComponent();
+            this.Closing += Window_Closing;
             AttachControlEventHandlers(webView);
 
             if ((bool)dlg.Fullscreen.IsChecked)
@@ -212,9 +254,7 @@ namespace WebDemoExe
 
             bool IsAppContentUri(Uri source)
             {
-                // Sample virtual host name for the app's content.
-                // See CoreWebView2.SetVirtualHostNameToFolderMapping: https://learn.microsoft.com/dotnet/api/microsoft.web.webview2.core.corewebview2.setvirtualhostnametofoldermapping
-                return source.Host == "appassets.example";
+                return source.Host == _appDomain;
             }
 
             if (e.ProcessFailedKind == CoreWebView2ProcessFailedKind.FrameRenderProcessExited)
@@ -267,7 +307,7 @@ namespace WebDemoExe
 
         void WebView_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.IsRepeat) return;
+            if (e.IsRepeat || _propagateKeys) return;
 
             if (e.KeyboardDevice.IsKeyDown(Key.Escape))
             {
@@ -354,7 +394,7 @@ namespace WebDemoExe
 
         private string GetStartPageUri(CoreWebView2 webView2)
         {
-            string uri = "https://appassets.example/index.html";
+            string uri = $"https://{_appDomain}/index.html";
             if (webView2 == null)
             {
                 return uri;
@@ -373,7 +413,7 @@ namespace WebDemoExe
             if (e.IsSuccess)
             {
                 // Setup host resource mapping for local files
-                webView.CoreWebView2.SetVirtualHostNameToFolderMapping("appassets.example", "demo", CoreWebView2HostResourceAccessKind.DenyCors);
+                webView.CoreWebView2.SetVirtualHostNameToFolderMapping(_appDomain, "demo", CoreWebView2HostResourceAccessKind.DenyCors);
                 // Set StartPage Uri
                 webView.Source = new Uri(GetStartPageUri(webView.CoreWebView2));
 
@@ -453,6 +493,11 @@ namespace WebDemoExe
             }
         }
         // </BrowserProcessExited>
+
+        void Window_Closing(object sender, CancelEventArgs e)
+        {
+            closeExe(false);
+        }
 
         void WebView_HandleIFrames(object sender, CoreWebView2FrameCreatedEventArgs args)
         {
@@ -568,13 +613,107 @@ namespace WebDemoExe
         }
         // </OnPermissionRequested>
 
-
-        void closeExe()
+        void closeExe(bool closeWindow = true)
         {
-            webView.Source = new Uri("about:blank");
-            webView.Dispose();
-            Close();
-            System.Environment.Exit(1);
+            string userDataFolder = null;
+            Process webViewProcess = null;
+            
+            try
+            {
+                if (webView?.CoreWebView2 != null)
+                {
+                    try
+                    {
+                        userDataFolder = webView.CoreWebView2.Environment?.UserDataFolder;
+                        
+                        var processId = webView.CoreWebView2.BrowserProcessId;
+                        if (processId > 0)
+                        {
+                            webViewProcess = Process.GetProcessById(Convert.ToInt32(processId));
+                        }
+                        
+                        webView.Source = new Uri("about:blank");
+                    }
+                    catch (Exception ex)
+                    {
+                        Trace.TraceError($"Error preparing WebView cleanup: {ex.Message}");
+                    }
+                }
+
+                if (webView != null)
+                {
+                    try
+                    {
+                        webView.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Trace.TraceError($"Error disposing WebView: {ex.Message}");
+                    }
+                    webView = null;
+                }
+
+                if (webViewProcess != null && !webViewProcess.HasExited)
+                {
+                    try
+                    {
+                        webViewProcess.CloseMainWindow();
+                        if (!webViewProcess.WaitForExit(3000))
+                        {
+                            webViewProcess.Kill();
+                            webViewProcess.WaitForExit(2000);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Trace.TraceError($"Error terminating WebView process: {ex.Message}");
+                    }
+                    finally
+                    {
+                        webViewProcess?.Dispose();
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(userDataFolder) && Directory.Exists(userDataFolder))
+                {
+                    try
+                    {
+                        var tempPath = Path.GetTempPath();
+                        if (userDataFolder.StartsWith(tempPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            Directory.Delete(userDataFolder, true);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Trace.TraceWarning($"Error cleaning user data folder: {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Trace.TraceError($"Critical error during application close: {e.Message}");
+                if (closeWindow)
+                {
+                    MessageBox.Show($"Application encountered an error during shutdown: {e.Message}", 
+                                   "Shutdown Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+
+            try
+            {
+                Closing -= Window_Closing;
+                if (closeWindow)
+                {
+                    Close();
+                    System.Environment.Exit(0);
+                }
+            }
+            catch (Exception ex)
+            {
+                Trace.TraceError($"Error during final window close: {ex.Message}");
+                System.Environment.Exit(1);
+            }
         }
     }
 }
